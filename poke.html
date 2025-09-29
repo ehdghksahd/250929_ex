@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PokeSearch</title>
+    <meta property="og:title" content="Poke" />
+    <meta property="og:description" content="포켓몬 도감" />
+    <meta property="og:image" content="./250929_ex/ball.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+      rel="stylesheet"
+      integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH"
+      crossorigin="anonymous"
+    />
+    <style>
+      /* 포켓몬 이미지 크기 조정 */
+      .poke-img {
+        width: 96px; /* 기본 포켓몬 스프라이트 크기 */
+        height: 96px;
+      }
+      /* 포켓몬 박스 중앙 정렬 및 간격 조정 */
+      #pokeBox {
+        margin-top: 20px;
+        padding: 20px;
+        border: 1px solid #dee2e6; /* 연한 테두리 */
+        border-radius: 8px; /* 둥근 모서리 */
+        text-align: center;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container mt-5">
+      <h1 class="mb-4 text-center">포켓몬 검색기 🔍</h1>
+
+      <section class="d-flex align-items-center justify-content-center mb-4">
+        <label for="pokeId" class="form-label me-2 mb-0">포켓몬 ID :</label>
+        <input
+          id="pokeId"
+          type="number"
+          min="1"
+          class="form-control w-25 me-2"
+          placeholder="ID 입력 (예: 1)"
+        />
+        <button id="pokeBtn" class="btn btn-primary">검색</button>
+      </section>
+
+      <section id="pokeBox" class="shadow-sm"></section>
+    </div>
+
+    <script
+      src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
+      integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz"
+      crossorigin="anonymous"
+    ></script>
+
+    <script>
+      // 1. API에서 데이터 호출하기
+      async function getPokemon(id) {
+        if (!id) return;
+
+        console.log(`${id}번 포켓몬을 불러옵니다`);
+        const response = await fetch(`https://pokeapi.co/api/v2/pokemon/${id}`);
+        if (!response.ok) {
+          alert("해당 ID의 포켓몬을 찾을 수 없습니다.");
+          document.querySelector(
+            "#pokeBox"
+          ).innerHTML = `<p class="text-danger">포켓몬 정보를 불러올 수 없습니다. ID를 확인해주세요.</p>`;
+          return;
+        }
+        const data = await response.json();
+
+        const response2 = await fetch(
+          `https://pokeapi.co/api/v2/pokemon-species/${id}`
+        );
+        const data2 = await response2.json();
+
+        // 한글 이름
+        const koName = data2.names.filter((v) => v.language.name === "ko")[0]
+          .name;
+
+        // 진화 체인 데이터 호출
+        const evId = data2.evolution_chain.url;
+        const evoResponse = await fetch(evId);
+        const evoData = await evoResponse.json();
+
+        // 다음 진화체 ID 계산
+        const nextEvoId = getNextEvolutionId(data.name, evoData.chain);
+
+        const poke = {
+          engName: data.name,
+          koName,
+          frontShape: data.sprites.front_default,
+          backShape: data.sprites.back_default,
+          nextEvoId: nextEvoId, // 다음 진화체의 ID 저장
+          sound: data.cries.latest,
+        };
+        localStorage.setItem("recent", JSON.stringify(poke));
+        renderPoke(poke);
+      }
+
+      // **새로운 함수: 진화 체인에서 다음 포켓몬 ID 찾기**
+      function getNextEvolutionId(currentName, chain) {
+        // 현재 포켓몬이 기본 진화형인 경우
+        if (chain.species.name === currentName) {
+          if (chain.evolves_to.length > 0) {
+            const nextSpeciesUrl = chain.evolves_to[0].species.url;
+            return extractIdFromUrl(nextSpeciesUrl);
+          }
+          return null; // 진화체가 없음
+        }
+
+        // 현재 포켓몬이 기본 진화형이 아닌 경우
+        for (const evolution of chain.evolves_to) {
+          if (evolution.species.name === currentName) {
+            if (evolution.evolves_to.length > 0) {
+              const nextSpeciesUrl = evolution.evolves_to[0].species.url;
+              return extractIdFromUrl(nextSpeciesUrl);
+            }
+            return null; // 다음 진화체가 없음
+          }
+          // 재귀적으로 더 깊은 진화 단계를 탐색
+          const nestedResult = getNextEvolutionId(currentName, evolution);
+          if (nestedResult) return nestedResult;
+        }
+
+        return null; // 찾지 못함
+      }
+
+      // **유틸리티 함수: URL에서 ID 추출**
+      function extractIdFromUrl(url) {
+        const parts = url.split("/");
+        return parts[parts.length - 2];
+      }
+
+      // **새로운 함수: 진화 버튼 클릭 핸들러**
+      function handleEvolutionClick(nextEvoId) {
+        if (nextEvoId) {
+          // 다음 진화체의 ID로 getPokemon 함수 호출
+          pokeId.value = nextEvoId;
+          getPokemon(nextEvoId);
+        } else {
+          alert("더 이상 진화할 수 없습니다.");
+        }
+      }
+
+      // 2. input 통해 번호 바꿔보기
+      const pokeBtn = document.querySelector("#pokeBtn");
+      const pokeId = document.querySelector("#pokeId");
+      pokeBtn.addEventListener("click", () => getPokemon(pokeId.value));
+
+      // 3. 데이터 화면에 그리기
+      function renderPoke({
+        engName,
+        koName,
+        frontShape,
+        backShape,
+        sound,
+        nextEvoId,
+      }) {
+        const pokeBox = document.querySelector("#pokeBox");
+        // Bootstrap 클래스를 사용하여 디자인 적용
+        const buttonDisabled = nextEvoId ? "" : "disabled";
+        const buttonText = nextEvoId ? "다음 진화체 ➡️" : "최종 진화 🌟";
+
+        pokeBox.innerHTML = `
+            <h4 class="text-primary mb-1">${koName}</h4> <h5 class="text-muted mb-3">(${engName})</h5> <div class="d-flex justify-content-center mb-3">
+                <img src="${frontShape}" class="poke-img me-3 border rounded" alt="${koName} 앞모습">
+                <img src="${backShape}" class="poke-img border rounded" alt="${koName} 뒷모습">
+            </div>
+            <button id="evolutionBtn" class="btn btn-success mb-3" ${buttonDisabled}>${buttonText}</button></br>
+            <audio src="${sound}" controls class="w-100"></audio> `;
+
+        // 버튼이 활성화된 경우에만 이벤트 리스너 추가
+        if (nextEvoId) {
+          const evolutionBtn = document.querySelector("#evolutionBtn");
+          evolutionBtn.addEventListener("click", () =>
+            handleEvolutionClick(nextEvoId)
+          );
+        }
+      }
+
+      // 4. 직전 검색 데이터를 Storage. 자동 로딩.
+      document.addEventListener("DOMContentLoaded", () => {
+        const rawRecentPoke = localStorage.getItem("recent");
+        if (!rawRecentPoke) return;
+        const recentPoke = JSON.parse(rawRecentPoke);
+        // 저장된 포켓몬 ID를 input에 채워 넣기 (선택 사항)
+        // ID는 getPokemon의 data.id에서 가져오지 않아 저장되어 있지 않으므로, 이 부분을 생략합니다.
+        renderPoke(recentPoke);
+      });
+    </script>
+  </body>
+</html>
